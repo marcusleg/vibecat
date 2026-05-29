@@ -126,8 +126,19 @@ trivially testable against in-memory buffers.
   FIN so the remote sees our EOF — but we keep receiving.
 - **Thread 2** runs `pump(socket_read_handle, stdout)`. It runs until the remote
   closes (read returns 0).
-- The process exits when **Thread 2** finishes. `main` joins on Thread 2; Thread 1
-  may still be blocked on stdin and is not waited on.
+- The process exits when **both** pumps finish. Thread 2 runs on the main thread;
+  after it returns (peer FIN), `main` joins Thread 1 so any buffered stdin data is
+  flushed to the socket before exit. This makes both half-closes symmetric: our
+  stdin EOF stops sending while we keep receiving, and the peer's FIN stops
+  receiving while we keep sending. (An earlier draft exited as soon as Thread 2
+  finished; that dropped a server-mode reply that was still being written by
+  Thread 1, so the design waits for both.)
+- **Caveat — early FIN and real servers:** sending FIN on stdin EOF is standard
+  netcat behavior, but some servers/CDNs (e.g. example.com) abort the connection
+  when they receive a client FIN before they have responded. This is not a vibecat
+  bug — the system `nc`/`ncat` and a raw socket doing `shutdown(SHUT_WR)` behave
+  identically. A future `--no-shutdown` flag (matching ncat) would suppress the
+  FIN for these peers; it is out of scope for the MVP.
 - **UDP:** No `shutdown`/FIN semantics. stdin EOF simply ends Thread 1. Thread 2's
   `recv` blocks waiting for more datagrams with no natural end-of-stream signal.
   This matches real `nc -u`: the user exits with Ctrl-C / process termination.
@@ -217,8 +228,13 @@ out-of-range port is a clear error.
 
 - Spin up `vibecat -l` in a thread and a client `vibecat` against it on a loopback
   ephemeral port; assert bytes pipe end-to-end for both TCP and UDP.
-- Test the half-close case: pipe input via `echo`, confirm the response is
-  received after stdin EOF (TCP).
+- Test the half-close case against a local server that replies *after* a delay:
+  pipe input in, close stdin, and confirm the delayed response is still received
+  (proves the receive side stays open past stdin EOF).
+- Note: do not use `example.com:80` as a half-close test target — that CDN aborts
+  on an early client FIN, so it returns nothing here just as it does for real
+  `nc`. Use a local server (or `--no-shutdown`-style behavior) for the manual
+  interop smoke test instead.
 
 ## Implementation Notes
 
