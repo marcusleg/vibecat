@@ -180,6 +180,20 @@ Validation that clap can't express directly (e.g. host required unless `-l`) liv
 in `Config::validate()`, returning a clear error. clap provides `--help` and
 `--version` automatically.
 
+### Positional Disambiguation
+
+Both positionals are defined as optional at the clap level (`[host] [port]`) and
+resolved by `validate()` based on the count and mode:
+
+- **Client mode** (no `-l`): exactly two positionals required → `<host> <port>`.
+  Zero or one positional is an error.
+- **Listen mode** (`-l`): one positional → it is the `<port>`, host defaults to
+  `0.0.0.0`. Two positionals → `<host> <port>` (explicit bind address). Zero
+  positionals is an error.
+
+The last positional is always the port and must parse as a `u16`; a non-numeric or
+out-of-range port is a clear error.
+
 ## Error Handling
 
 - Functions return `io::Result` (or a small error type) up to `main`.
