@@ -427,6 +427,36 @@ fn dual_listen_udp_accepts_ipv6_datagram() {
 }
 
 #[test]
+fn verbose_listen_prints_disconnected_on_client_close() {
+    let port = free_tcp_port();
+
+    let server = Command::new(bin())
+        .args(["-v", "-l", &port.to_string()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    thread::sleep(Duration::from_millis(200));
+
+    let client = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    drop(client);
+
+    let output = server.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        stderr.contains("Disconnected"),
+        "stderr should contain 'Disconnected', got: {stderr}"
+    );
+    assert!(
+        stderr.contains("Exiting"),
+        "stderr should contain 'Exiting', got: {stderr}"
+    );
+}
+
+#[test]
 fn happy_eyeballs_falls_back_to_ipv4() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -455,6 +485,49 @@ fn happy_eyeballs_falls_back_to_ipv4() {
     let received = server.join().unwrap();
     child.wait().unwrap();
     assert_eq!(received, b"happy-eyeballs-v4");
+}
+
+#[test]
+fn listen_exits_after_client_disconnects() {
+    let port = free_tcp_port();
+
+    let mut server = Command::new(bin())
+        .args(["-l", &port.to_string()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    thread::sleep(Duration::from_millis(200));
+
+    // Connect and immediately disconnect — stdin is still open (not dropped),
+    // simulating a real terminal where nobody is typing.
+    let client = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    drop(client);
+
+    // The server should exit within a reasonable time. Without the fix, the
+    // send thread blocks on stdin.read() forever and join() in
+    // pump_bidirectional never returns.
+    let exited = loop {
+        thread::sleep(Duration::from_millis(100));
+        match server.try_wait().unwrap() {
+            Some(status) => break Some(status),
+            None => {
+                // Check if 3 seconds have elapsed total (200ms bind + up to 2800ms here).
+                static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+                let start = START.get_or_init(std::time::Instant::now);
+                if start.elapsed() > Duration::from_secs(3) {
+                    break None;
+                }
+            }
+        }
+    };
+
+    if exited.is_none() {
+        server.kill().unwrap();
+        server.wait().unwrap();
+        panic!("vibecat -l did not exit after client disconnected (stdin still open)");
+    }
 }
 
 #[test]

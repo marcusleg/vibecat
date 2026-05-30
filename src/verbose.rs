@@ -72,6 +72,25 @@ fn format_destination(host: Option<&str>, resolved_ip: &str) -> String {
     }
 }
 
+/// Print a "Disconnected ..." message to stderr. No-op if verbose is off.
+pub fn log_disconnected(config: &Config, remote_addr: SocketAddr) {
+    if !config.verbose {
+        return;
+    }
+    let label = proto_label(config.proto, remote_addr);
+    let bc = bold_cyan();
+    eprintln!(
+        "vibecat: {} from {} on port {} ({label}). Exiting.",
+        "Disconnected".if_supports_color(Stream::Stderr, |t| t.yellow()),
+        remote_addr
+            .ip()
+            .if_supports_color(Stream::Stderr, |t| t.style(bc)),
+        remote_addr
+            .port()
+            .if_supports_color(Stream::Stderr, |t| t.style(bc)),
+    );
+}
+
 fn proto_label(proto: Proto, addr: SocketAddr) -> String {
     let family = if addr.is_ipv4() { "IPv4" } else { "IPv6" };
     let transport = match proto {

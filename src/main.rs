@@ -58,7 +58,8 @@ fn run(config: &Config) -> std::io::Result<()> {
         stdout.flush()?;
     }
 
-    pump_bidirectional(conn)
+    let remote_addr = conn.peer_addr()?;
+    pump_bidirectional(conn, config, remote_addr)
 }
 
 /// Spawn the stdin→socket and socket→stdout pumps and run until both directions
@@ -69,9 +70,11 @@ fn run(config: &Config) -> std::io::Result<()> {
 /// we keep sending our stdin. The process therefore exits only once *both* pumps
 /// finish — waiting for the send pump guarantees buffered stdin data is delivered
 /// before the socket closes.
-fn pump_bidirectional(conn: Conn) -> std::io::Result<()> {
+fn pump_bidirectional(conn: Conn, config: &Config, remote_addr: std::net::SocketAddr) -> std::io::Result<()> {
     let send_conn = conn.try_clone()?;
     let recv_conn = conn;
+
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
 
     // Thread 1: stdin -> socket. On stdin EOF, half-close the write side so the
     // remote sees our EOF (TCP FIN); the receive side stays open.
@@ -80,6 +83,7 @@ fn pump_bidirectional(conn: Conn) -> std::io::Result<()> {
         let mut writer = send_conn;
         let _ = io::pump(stdin.lock(), &mut writer);
         let _ = writer.shutdown_write();
+        let _ = tx.send(());
     });
 
     // Thread 2 (this thread): socket -> stdout, until the remote closes.
@@ -87,7 +91,14 @@ fn pump_bidirectional(conn: Conn) -> std::io::Result<()> {
     let mut reader = recv_conn;
     let recv_result = io::pump(&mut reader, stdout.lock());
 
-    // Wait for the send side so its data is fully flushed before we exit.
-    let _ = send_thread.join();
+    verbose::log_disconnected(config, remote_addr);
+
+    // Give the send thread a brief window to finish flushing any in-flight
+    // stdin data. If it's still blocked on stdin.read() after the grace period
+    // (nobody is typing, remote already closed), let the process exit — the OS
+    // tears down the blocked thread.
+    if rx.recv_timeout(std::time::Duration::from_millis(200)).is_ok() {
+        let _ = send_thread.join();
+    }
     recv_result
 }
