@@ -26,12 +26,14 @@ The binary is produced at `target/release/vibecat`.
 ```
 vibecat [OPTIONS] <host> <port>      # client: connect to host:port
 vibecat -l [OPTIONS] <port>          # server: listen on port (host defaults to [::] and 0.0.0.0)
+vibecat -z <host> <port>             # scan: test whether a port is open, then exit
 ```
 
 | Flag           | Meaning                                            |
 |----------------|----------------------------------------------------|
 | `-l, --listen` | Listen mode (server). Without it: client mode.     |
 | `-u, --udp`    | Use UDP instead of TCP.                            |
+| `-z, --zero`   | Zero-I/O: test if a port is open, then exit (TCP). |
 | `-4, --ipv4`   | Use IPv4 only.                                     |
 | `-6, --ipv6`   | Use IPv6 only.                                     |
 | `-v, --verbose` | Print diagnostic messages to stderr.              |
@@ -63,6 +65,12 @@ vibecat -l 9999          # terminal 1
 vibecat 127.0.0.1 9999   # terminal 2
 ```
 
+Check if a port is open (zero-I/O scan):
+
+```sh
+vibecat -z example.com 443
+```
+
 UDP — listener and client (exit the listener with Ctrl-C):
 
 ```sh
@@ -90,7 +98,7 @@ echo "ping" | vibecat -u 127.0.0.1 9999   # terminal 2
 
 This is a minimal MVP. Out of scope (for now): source-port selection (`-p`),
 timeouts (`-w`), keep-listening for multiple clients (`-k`), command execution
-(`-e`/`-c`), port scanning, hex-dump output, and TLS.
+(`-e`/`-c`), port-range scanning, hex-dump output, and TLS.
 
 ## Development
 

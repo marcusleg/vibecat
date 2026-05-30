@@ -561,3 +561,80 @@ fn happy_eyeballs_prefers_ipv6() {
     child.wait().unwrap();
     assert_eq!(received, b"happy-eyeballs-v6");
 }
+
+#[test]
+fn scan_open_port_succeeds() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let child = Command::new(bin())
+        .args(["-z", "127.0.0.1", &port.to_string()])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let output = child.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        output.status.success(),
+        "exit code should be 0 for open port"
+    );
+    assert!(
+        stderr.contains("succeeded"),
+        "stderr should contain 'succeeded', got: {stderr}"
+    );
+    assert!(
+        stderr.contains(&port.to_string()),
+        "stderr should contain the port, got: {stderr}"
+    );
+}
+
+#[test]
+fn scan_closed_port_fails() {
+    let port = free_tcp_port();
+
+    let child = Command::new(bin())
+        .args(["-z", "127.0.0.1", &port.to_string()])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let output = child.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !output.status.success(),
+        "exit code should be non-zero for closed port"
+    );
+    assert!(
+        stderr.contains("failed"),
+        "stderr should contain 'failed', got: {stderr}"
+    );
+}
+
+#[test]
+fn scan_produces_no_stdout() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let child = Command::new(bin())
+        .args(["-z", "127.0.0.1", &port.to_string()])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let output = child.wait_with_output().unwrap();
+
+    assert!(
+        output.stdout.is_empty(),
+        "stdout should be empty in scan mode, got: {:?}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+}

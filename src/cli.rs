@@ -4,11 +4,12 @@ use std::ffi::OsString;
 
 use clap::Parser;
 
-/// Whether vibecat connects out or listens for an incoming connection.
+/// Whether vibecat connects out, listens, or performs a zero-I/O port scan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     Connect,
     Listen,
+    ScanPort,
 }
 
 /// Transport protocol.
@@ -50,6 +51,10 @@ struct RawArgs {
     #[arg(short = 'u', long = "udp")]
     udp: bool,
 
+    /// Zero-I/O mode: test whether a port is open, then exit.
+    #[arg(short = 'z', long = "zero")]
+    zero: bool,
+
     /// Print diagnostic messages to stderr.
     #[arg(short = 'v', long = "verbose")]
     verbose: bool,
@@ -79,7 +84,16 @@ impl Config {
     }
 
     fn from_raw(raw: RawArgs) -> Result<Config, String> {
-        let mode = if raw.listen {
+        if raw.zero && raw.listen {
+            return Err("-z and -l are mutually exclusive".to_string());
+        }
+        if raw.zero && raw.udp {
+            return Err("-z requires TCP (cannot be used with -u)".to_string());
+        }
+
+        let mode = if raw.zero {
+            Mode::ScanPort
+        } else if raw.listen {
             Mode::Listen
         } else {
             Mode::Connect
@@ -87,9 +101,12 @@ impl Config {
         let proto = if raw.udp { Proto::Udp } else { Proto::Tcp };
 
         let (host, port_str) = match (mode, raw.positionals.as_slice()) {
-            (Mode::Connect, [host, port]) => (Some(host.clone()), port),
+            (Mode::Connect | Mode::ScanPort, [host, port]) => (Some(host.clone()), port),
             (Mode::Connect, _) => {
                 return Err("connect mode requires <host> <port>".to_string());
+            }
+            (Mode::ScanPort, _) => {
+                return Err("-z requires <host> <port>".to_string());
             }
             (Mode::Listen, [port]) => (None, port),
             (Mode::Listen, [host, port]) => (Some(host.clone()), port),
@@ -114,7 +131,7 @@ impl Config {
             proto,
             host,
             port,
-            verbose: raw.verbose,
+            verbose: raw.verbose || mode == Mode::ScanPort,
             addr_family,
         })
     }
@@ -234,5 +251,40 @@ mod tests {
         assert_eq!(c.addr_family, AddrFamily::Ipv4);
         assert_eq!(c.proto, Proto::Udp);
         assert_eq!(c.mode, Mode::Listen);
+    }
+
+    #[test]
+    fn zero_flag_sets_scan_port_mode() {
+        let c = Config::from_args(["vibecat", "-z", "example.com", "80"]).unwrap();
+        assert_eq!(c.mode, Mode::ScanPort);
+        assert_eq!(c.host.as_deref(), Some("example.com"));
+        assert_eq!(c.port, 80);
+    }
+
+    #[test]
+    fn zero_flag_forces_verbose() {
+        let c = Config::from_args(["vibecat", "-z", "example.com", "80"]).unwrap();
+        assert!(c.verbose);
+    }
+
+    #[test]
+    fn zero_flag_long() {
+        let c = Config::from_args(["vibecat", "--zero", "example.com", "80"]).unwrap();
+        assert_eq!(c.mode, Mode::ScanPort);
+    }
+
+    #[test]
+    fn zero_and_listen_is_error() {
+        assert!(Config::from_args(["vibecat", "-z", "-l", "8080"]).is_err());
+    }
+
+    #[test]
+    fn zero_and_udp_is_error() {
+        assert!(Config::from_args(["vibecat", "-z", "-u", "example.com", "80"]).is_err());
+    }
+
+    #[test]
+    fn zero_missing_host_is_error() {
+        assert!(Config::from_args(["vibecat", "-z", "80"]).is_err());
     }
 }
