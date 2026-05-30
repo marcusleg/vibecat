@@ -182,9 +182,31 @@ fn connect_tcp(host: &str, port: u16, family: AddrFamily) -> io::Result<(Conn, S
     happy_eyeballs(primary, fallback)
 }
 
-fn connect_udp(host: &str, port: u16, _family: AddrFamily) -> io::Result<(Conn, SocketAddr)> {
-    let socket = UdpSocket::bind("0.0.0.0:0")?;
-    socket.connect((host, port))?;
+fn connect_udp(host: &str, port: u16, family: AddrFamily) -> io::Result<(Conn, SocketAddr)> {
+    let addrs: Vec<SocketAddr> = (host, port).to_socket_addrs()?.collect();
+
+    let addr = match family {
+        AddrFamily::Ipv4 => addrs.iter().find(|a| a.is_ipv4()),
+        AddrFamily::Ipv6 => addrs.iter().find(|a| a.is_ipv6()),
+        AddrFamily::Both => addrs
+            .iter()
+            .find(|a| a.is_ipv6())
+            .or_else(|| addrs.iter().find(|a| a.is_ipv4())),
+    }
+    .ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::AddrNotAvailable,
+            format!("no matching addresses for {host}"),
+        )
+    })?;
+
+    let bind_addr: SocketAddr = if addr.is_ipv4() {
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)
+    } else {
+        SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0)
+    };
+    let socket = UdpSocket::bind(bind_addr)?;
+    socket.connect(addr)?;
     let local = socket.local_addr()?;
     Ok((Conn::Udp(UdpStream::new(socket)), local))
 }
@@ -499,5 +521,23 @@ mod tests {
         let (_conn, initial, _local, peer) = server.join().unwrap();
         assert_eq!(initial.as_deref(), Some(&b"first"[..]));
         assert_ne!(peer.port(), 0);
+    }
+
+    #[test]
+    fn udp_connect_ipv6_preferred() {
+        let remote = UdpSocket::bind("[::1]:0").unwrap();
+        let port = remote.local_addr().unwrap().port();
+
+        let config = Config {
+            mode: Mode::Connect,
+            proto: Proto::Udp,
+            host: Some("::1".to_string()),
+            port,
+            verbose: false,
+            addr_family: AddrFamily::Ipv6,
+        };
+        let (conn, local) = connect(&config).unwrap();
+        assert!(local.is_ipv6());
+        drop(conn);
     }
 }
