@@ -425,3 +425,65 @@ fn dual_listen_udp_accepts_ipv6_datagram() {
     server.kill().unwrap();
     server.wait().unwrap();
 }
+
+#[test]
+fn happy_eyeballs_falls_back_to_ipv4() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut got = Vec::new();
+        stream.read_to_end(&mut got).unwrap();
+        got
+    });
+
+    let mut child = Command::new(bin())
+        .args(["localhost", &port.to_string()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"happy-eyeballs-v4")
+        .unwrap();
+
+    let received = server.join().unwrap();
+    child.wait().unwrap();
+    assert_eq!(received, b"happy-eyeballs-v4");
+}
+
+#[test]
+fn happy_eyeballs_prefers_ipv6() {
+    let listener = TcpListener::bind("[::1]:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut got = Vec::new();
+        stream.read_to_end(&mut got).unwrap();
+        got
+    });
+
+    let mut child = Command::new(bin())
+        .args(["localhost", &port.to_string()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"happy-eyeballs-v6")
+        .unwrap();
+
+    let received = server.join().unwrap();
+    child.wait().unwrap();
+    assert_eq!(received, b"happy-eyeballs-v6");
+}
