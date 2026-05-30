@@ -26,6 +26,7 @@ pub struct Config {
     /// `None` only in listen mode with no explicit bind address (defaults later).
     pub host: Option<String>,
     pub port: u16,
+    pub verbose: bool,
 }
 
 /// Raw clap-parsed arguments, before semantic validation.
@@ -39,6 +40,10 @@ struct RawArgs {
     /// Use UDP instead of TCP.
     #[arg(short = 'u', long = "udp")]
     udp: bool,
+
+    /// Print diagnostic messages to stderr.
+    #[arg(short = 'v', long = "verbose")]
+    verbose: bool,
 
     /// Positional arguments: `[host] <port>`.
     #[arg(value_name = "ARGS")]
@@ -76,7 +81,7 @@ impl Config {
             .parse()
             .map_err(|_| format!("invalid port: {port_str}"))?;
 
-        Ok(Config { mode, proto, host, port })
+        Ok(Config { mode, proto, host, port, verbose: raw.verbose })
     }
 }
 
@@ -133,5 +138,23 @@ mod tests {
     #[test]
     fn out_of_range_port_is_error() {
         assert!(Config::from_args(["vibecat", "example.com", "70000"]).is_err());
+    }
+
+    #[test]
+    fn verbose_flag_short() {
+        let c = Config::from_args(["vibecat", "-v", "example.com", "80"]).unwrap();
+        assert!(c.verbose);
+    }
+
+    #[test]
+    fn verbose_flag_long() {
+        let c = Config::from_args(["vibecat", "--verbose", "-l", "8080"]).unwrap();
+        assert!(c.verbose);
+    }
+
+    #[test]
+    fn verbose_defaults_to_false() {
+        let c = Config::from_args(["vibecat", "example.com", "80"]).unwrap();
+        assert!(!c.verbose);
     }
 }

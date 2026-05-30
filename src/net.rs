@@ -106,7 +106,7 @@ mod tests {
     use std::thread;
 
     fn cfg(mode: Mode, proto: Proto, host: Option<&str>, port: u16) -> Config {
-        Config { mode, proto, host: host.map(String::from), port }
+        Config { mode, proto, host: host.map(String::from), port, verbose: false }
     }
 
     #[test]
