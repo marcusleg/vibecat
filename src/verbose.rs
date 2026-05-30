@@ -82,7 +82,7 @@ fn proto_str(proto: Proto) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::Mode;
+    use crate::cli::{AddrFamily, Mode};
     use std::net::{IpAddr, Ipv4Addr};
 
     fn cfg(verbose: bool, proto: Proto, host: Option<&str>) -> Config {
@@ -92,6 +92,7 @@ mod tests {
             host: host.map(String::from),
             port: 80,
             verbose,
+            addr_family: AddrFamily::Both,
         }
     }
 

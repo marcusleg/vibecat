@@ -18,6 +18,14 @@ pub enum Proto {
     Udp,
 }
 
+/// Address family constraint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AddrFamily {
+    Both,
+    Ipv4,
+    Ipv6,
+}
+
 /// Fully resolved, validated configuration handed to the rest of the program.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
@@ -27,6 +35,7 @@ pub struct Config {
     pub host: Option<String>,
     pub port: u16,
     pub verbose: bool,
+    pub addr_family: AddrFamily,
 }
 
 /// Raw clap-parsed arguments, before semantic validation.
@@ -44,6 +53,14 @@ struct RawArgs {
     /// Print diagnostic messages to stderr.
     #[arg(short = 'v', long = "verbose")]
     verbose: bool,
+
+    /// Use IPv4 only.
+    #[arg(short = '4', long = "ipv4")]
+    ipv4: bool,
+
+    /// Use IPv6 only.
+    #[arg(short = '6', long = "ipv6")]
+    ipv6: bool,
 
     /// Positional arguments: `[host] <port>`.
     #[arg(value_name = "ARGS")]
@@ -81,7 +98,14 @@ impl Config {
             .parse()
             .map_err(|_| format!("invalid port: {port_str}"))?;
 
-        Ok(Config { mode, proto, host, port, verbose: raw.verbose })
+        let addr_family = match (raw.ipv4, raw.ipv6) {
+            (true, true) => return Err("-4 and -6 are mutually exclusive".to_string()),
+            (true, false) => AddrFamily::Ipv4,
+            (false, true) => AddrFamily::Ipv6,
+            (false, false) => AddrFamily::Both,
+        };
+
+        Ok(Config { mode, proto, host, port, verbose: raw.verbose, addr_family })
     }
 }
 
@@ -156,5 +180,48 @@ mod tests {
     fn verbose_defaults_to_false() {
         let c = Config::from_args(["vibecat", "example.com", "80"]).unwrap();
         assert!(!c.verbose);
+    }
+
+    #[test]
+    fn ipv4_flag_short() {
+        let c = Config::from_args(["vibecat", "-4", "example.com", "80"]).unwrap();
+        assert_eq!(c.addr_family, AddrFamily::Ipv4);
+    }
+
+    #[test]
+    fn ipv6_flag_short() {
+        let c = Config::from_args(["vibecat", "-6", "example.com", "80"]).unwrap();
+        assert_eq!(c.addr_family, AddrFamily::Ipv6);
+    }
+
+    #[test]
+    fn ipv4_flag_long() {
+        let c = Config::from_args(["vibecat", "--ipv4", "-l", "8080"]).unwrap();
+        assert_eq!(c.addr_family, AddrFamily::Ipv4);
+    }
+
+    #[test]
+    fn ipv6_flag_long() {
+        let c = Config::from_args(["vibecat", "--ipv6", "-l", "8080"]).unwrap();
+        assert_eq!(c.addr_family, AddrFamily::Ipv6);
+    }
+
+    #[test]
+    fn addr_family_defaults_to_both() {
+        let c = Config::from_args(["vibecat", "example.com", "80"]).unwrap();
+        assert_eq!(c.addr_family, AddrFamily::Both);
+    }
+
+    #[test]
+    fn ipv4_and_ipv6_together_is_error() {
+        assert!(Config::from_args(["vibecat", "-4", "-6", "example.com", "80"]).is_err());
+    }
+
+    #[test]
+    fn ipv4_with_udp_and_listen() {
+        let c = Config::from_args(["vibecat", "-4", "-u", "-l", "8080"]).unwrap();
+        assert_eq!(c.addr_family, AddrFamily::Ipv4);
+        assert_eq!(c.proto, Proto::Udp);
+        assert_eq!(c.mode, Mode::Listen);
     }
 }

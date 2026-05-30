@@ -136,11 +136,11 @@ pub fn accept(listener: Listener) -> io::Result<(Conn, Option<Vec<u8>>, SocketAd
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::Mode;
+    use crate::cli::{AddrFamily, Mode};
     use std::thread;
 
     fn cfg(mode: Mode, proto: Proto, host: Option<&str>, port: u16) -> Config {
-        Config { mode, proto, host: host.map(String::from), port, verbose: false }
+        Config { mode, proto, host: host.map(String::from), port, verbose: false, addr_family: AddrFamily::Both }
     }
 
     #[test]
