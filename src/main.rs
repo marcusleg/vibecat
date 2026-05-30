@@ -36,12 +36,16 @@ fn main() -> ExitCode {
 fn run(config: &Config) -> std::io::Result<()> {
     let (conn, initial) = match config.mode {
         Mode::Connect => {
-            let (conn, _local_addr) = net::connect(config)?;
+            let (conn, local_addr) = net::connect(config)?;
+            let remote_addr = conn.peer_addr()?;
+            verbose::log_connected(config, local_addr, remote_addr);
             (conn, None)
         }
         Mode::Listen => {
-            let (listener, _bind_addr) = net::bind(config)?;
-            let (conn, initial, _local_addr, _peer_addr) = net::accept(listener)?;
+            let (listener, bind_addr) = net::bind(config)?;
+            verbose::log_listening(config, bind_addr);
+            let (conn, initial, _local_addr, peer_addr) = net::accept(listener)?;
+            verbose::log_connected(config, bind_addr, peer_addr);
             (conn, initial)
         }
     };

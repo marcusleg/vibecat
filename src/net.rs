@@ -14,6 +14,15 @@ pub enum Conn {
 }
 
 impl Conn {
+    /// Get the remote address of the connection. TCP returns the peer;
+    /// UDP returns the connected peer.
+    pub fn peer_addr(&self) -> io::Result<SocketAddr> {
+        match self {
+            Conn::Tcp(s) => s.peer_addr(),
+            Conn::Udp(s) => s.peer_addr(),
+        }
+    }
+
     /// Produce an independent handle to the same connection, for the second
     /// pump thread.
     pub fn try_clone(&self) -> io::Result<Conn> {

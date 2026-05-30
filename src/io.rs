@@ -55,6 +55,11 @@ impl UdpStream {
     pub fn try_clone(&self) -> io::Result<UdpStream> {
         Ok(UdpStream { socket: self.socket.try_clone()? })
     }
+
+    /// Get the remote address this socket is connected to.
+    pub fn peer_addr(&self) -> std::io::Result<std::net::SocketAddr> {
+        self.socket.peer_addr()
+    }
 }
 
 impl Read for UdpStream {
