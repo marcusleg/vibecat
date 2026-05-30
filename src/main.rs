@@ -42,10 +42,12 @@ fn run(config: &Config) -> std::io::Result<()> {
             (conn, None)
         }
         Mode::Listen => {
-            let (listener, bind_addr) = net::bind(config)?;
-            verbose::log_listening(config, bind_addr);
-            let (conn, initial, _local_addr, peer_addr) = net::accept(listener)?;
-            verbose::log_connected(config, bind_addr, peer_addr);
+            let listeners = net::bind(config)?;
+            for (_, bind_addr) in &listeners {
+                verbose::log_listening(config, *bind_addr);
+            }
+            let (conn, initial, local_addr, peer_addr) = net::accept_first(listeners)?;
+            verbose::log_connected(config, local_addr, peer_addr);
             (conn, initial)
         }
     };

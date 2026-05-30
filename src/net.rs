@@ -1,9 +1,16 @@
 //! Connection setup: connecting out or listening, over TCP or UDP.
 
 use std::io::{self, Read, Write};
-use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::net::ToSocketAddrs;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc};
+use std::thread;
+use std::time::Duration;
 
-use crate::cli::{Config, Proto};
+use socket2::{Domain, Socket, Type};
+
+use crate::cli::{AddrFamily, Config, Proto};
 use crate::io::UdpStream;
 
 /// A live connection, abstracting over TCP and UDP so the rest of the program
@@ -67,6 +74,63 @@ impl Write for Conn {
     }
 }
 
+fn make_tcp_listener(addr: SocketAddr) -> io::Result<TcpListener> {
+    let domain = match addr {
+        SocketAddr::V4(_) => Domain::IPV4,
+        SocketAddr::V6(_) => Domain::IPV6,
+    };
+    let socket = Socket::new(domain, Type::STREAM, None)?;
+    socket.set_reuse_address(true)?;
+    if addr.is_ipv6() {
+        socket.set_only_v6(true)?;
+    }
+    socket.bind(&addr.into())?;
+    socket.listen(1)?;
+    Ok(socket.into())
+}
+
+fn make_udp_socket(addr: SocketAddr) -> io::Result<UdpSocket> {
+    let domain = match addr {
+        SocketAddr::V4(_) => Domain::IPV4,
+        SocketAddr::V6(_) => Domain::IPV6,
+    };
+    let socket = Socket::new(domain, Type::DGRAM, None)?;
+    socket.set_reuse_address(true)?;
+    if addr.is_ipv6() {
+        socket.set_only_v6(true)?;
+    }
+    socket.bind(&addr.into())?;
+    Ok(socket.into())
+}
+
+fn listen_addrs(config: &Config) -> io::Result<Vec<SocketAddr>> {
+    let port = config.port;
+    match config.host.as_deref() {
+        Some(host) => {
+            let addrs: Vec<SocketAddr> = (host, port).to_socket_addrs()?.collect();
+            if addrs.is_empty() {
+                return Err(io::Error::new(
+                    io::ErrorKind::AddrNotAvailable,
+                    format!("no addresses resolved for {host}"),
+                ));
+            }
+            Ok(addrs)
+        }
+        None => Ok(match config.addr_family {
+            AddrFamily::Both => vec![
+                SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), port),
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port),
+            ],
+            AddrFamily::Ipv4 => {
+                vec![SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port)]
+            }
+            AddrFamily::Ipv6 => {
+                vec![SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), port)]
+            }
+        }),
+    }
+}
+
 /// Connect out to the remote described by `config` (client mode).
 pub fn connect(config: &Config) -> io::Result<(Conn, SocketAddr)> {
     let host = config.host.as_deref().unwrap_or("127.0.0.1");
@@ -92,30 +156,33 @@ pub enum Listener {
     Udp(UdpSocket),
 }
 
-/// Bind to the listen address (server mode). Returns the listener and the
-/// bound address so the caller can log it before blocking on accept.
-pub fn bind(config: &Config) -> io::Result<(Listener, SocketAddr)> {
-    let host = config.host.as_deref().unwrap_or("0.0.0.0");
-    let port = config.port;
-    match config.proto {
-        Proto::Tcp => {
-            let listener = TcpListener::bind((host, port))?;
-            let addr = listener.local_addr()?;
-            Ok((Listener::Tcp(listener), addr))
-        }
-        Proto::Udp => {
-            let socket = UdpSocket::bind((host, port))?;
-            let addr = socket.local_addr()?;
-            Ok((Listener::Udp(socket), addr))
+/// Bind to the listen address(es) (server mode). Returns one or more listeners
+/// and their bound addresses so the caller can log them before blocking on accept.
+pub fn bind(config: &Config) -> io::Result<Vec<(Listener, SocketAddr)>> {
+    let addrs = listen_addrs(config)?;
+    let mut listeners = Vec::with_capacity(addrs.len());
+    for addr in addrs {
+        match config.proto {
+            Proto::Tcp => {
+                let listener = make_tcp_listener(addr)?;
+                let bound = listener.local_addr()?;
+                listeners.push((Listener::Tcp(listener), bound));
+            }
+            Proto::Udp => {
+                let socket = make_udp_socket(addr)?;
+                let bound = socket.local_addr()?;
+                listeners.push((Listener::Udp(socket), bound));
+            }
         }
     }
+    Ok(listeners)
 }
 
 /// Accept a single connection from a bound listener.
 ///
 /// Returns the connection, optional first UDP datagram payload, local
 /// address, and peer address.
-pub fn accept(listener: Listener) -> io::Result<(Conn, Option<Vec<u8>>, SocketAddr, SocketAddr)> {
+fn accept(listener: Listener) -> io::Result<(Conn, Option<Vec<u8>>, SocketAddr, SocketAddr)> {
     match listener {
         Listener::Tcp(l) => {
             let (stream, peer) = l.accept()?;
@@ -131,6 +198,115 @@ pub fn accept(listener: Listener) -> io::Result<(Conn, Option<Vec<u8>>, SocketAd
             Ok((Conn::Udp(UdpStream::new(socket)), Some(buf), local, peer))
         }
     }
+}
+
+pub fn accept_first(
+    mut listeners: Vec<(Listener, SocketAddr)>,
+) -> io::Result<(Conn, Option<Vec<u8>>, SocketAddr, SocketAddr)> {
+    if listeners.len() == 1 {
+        let (listener, _) = listeners.pop().unwrap();
+        return accept(listener);
+    }
+
+    let is_tcp = matches!(listeners[0].0, Listener::Tcp(_));
+    if is_tcp {
+        accept_first_tcp(listeners)
+    } else {
+        accept_first_udp(listeners)
+    }
+}
+
+fn accept_first_tcp(
+    listeners: Vec<(Listener, SocketAddr)>,
+) -> io::Result<(Conn, Option<Vec<u8>>, SocketAddr, SocketAddr)> {
+    let (tx, rx) = mpsc::channel();
+
+    for (listener, _) in listeners {
+        let tx = tx.clone();
+        thread::spawn(move || {
+            let _ = tx.send(accept(listener));
+        });
+    }
+    drop(tx);
+
+    let mut last_err = io::Error::new(io::ErrorKind::Other, "no listeners accepted a connection");
+    for result in rx {
+        match result {
+            Ok(conn_tuple) => return Ok(conn_tuple),
+            Err(e) => last_err = e,
+        }
+    }
+    Err(last_err)
+}
+
+fn accept_first_udp(
+    listeners: Vec<(Listener, SocketAddr)>,
+) -> io::Result<(Conn, Option<Vec<u8>>, SocketAddr, SocketAddr)> {
+    let done = Arc::new(AtomicBool::new(false));
+    let (tx, rx) = mpsc::channel();
+
+    for (listener, _) in listeners {
+        let tx = tx.clone();
+        let done = Arc::clone(&done);
+        thread::spawn(move || {
+            if let Listener::Udp(socket) = listener {
+                socket
+                    .set_read_timeout(Some(Duration::from_secs(1)))
+                    .ok();
+                let mut buf = vec![0u8; 64 * 1024];
+                loop {
+                    if done.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    match socket.recv_from(&mut buf) {
+                        Ok((n, peer)) => {
+                            done.store(true, Ordering::Relaxed);
+                            buf.truncate(n);
+                            if let Err(e) = socket.connect(peer) {
+                                let _ = tx.send(Err(e));
+                                return;
+                            }
+                            let local = match socket.local_addr() {
+                                Ok(a) => a,
+                                Err(e) => {
+                                    let _ = tx.send(Err(e));
+                                    return;
+                                }
+                            };
+                            let _ = tx.send(Ok((
+                                Conn::Udp(UdpStream::new(socket)),
+                                Some(buf),
+                                local,
+                                peer,
+                            )));
+                            return;
+                        }
+                        Err(ref e)
+                            if e.kind() == io::ErrorKind::WouldBlock
+                                || e.kind() == io::ErrorKind::TimedOut =>
+                        {
+                            continue;
+                        }
+                        Err(e) => {
+                            let _ = tx.send(Err(e));
+                            return;
+                        }
+                    }
+                }
+            }
+        });
+    }
+    drop(tx);
+
+    let mut last_err =
+        io::Error::new(io::ErrorKind::Other, "no UDP listener received a datagram");
+    for result in rx {
+        match result {
+            Ok(conn_tuple) => return Ok(conn_tuple),
+            Err(e) => last_err = e,
+        }
+    }
+    Err(last_err)
 }
 
 #[cfg(test)]
@@ -174,9 +350,9 @@ mod tests {
 
         let listen_cfg = cfg(Mode::Listen, Proto::Udp, Some("127.0.0.1"), port);
         let server = thread::spawn(move || {
-            let (listener, bind_addr) = bind(&listen_cfg).unwrap();
-            assert_eq!(bind_addr.port(), port);
-            accept(listener).unwrap()
+            let listeners = bind(&listen_cfg).unwrap();
+            assert_eq!(listeners[0].1.port(), port);
+            accept_first(listeners).unwrap()
         });
 
         thread::sleep(std::time::Duration::from_millis(100));
