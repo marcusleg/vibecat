@@ -167,3 +167,102 @@ fn udp_listen_delivers_first_datagram_to_stdout() {
     server.kill().unwrap();
     server.wait().unwrap();
 }
+
+#[test]
+fn verbose_connect_prints_connected_to_stderr() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let server = thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        drop(stream);
+    });
+
+    let child = Command::new(bin())
+        .args(["-v", "127.0.0.1", &port.to_string()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let output = child.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    server.join().unwrap();
+
+    assert!(
+        stderr.contains("Connected"),
+        "stderr should contain 'Connected', got: {stderr}"
+    );
+    assert!(
+        stderr.contains(&port.to_string()),
+        "stderr should contain the port, got: {stderr}"
+    );
+    assert!(stderr.contains("(tcp)"), "stderr should contain '(tcp)', got: {stderr}");
+}
+
+#[test]
+fn verbose_listen_prints_listening_and_connected_to_stderr() {
+    let port = free_tcp_port();
+
+    let mut server = Command::new(bin())
+        .args(["-v", "-l", &port.to_string()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    thread::sleep(Duration::from_millis(200));
+
+    let client = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    client.shutdown(std::net::Shutdown::Both).unwrap();
+    drop(client);
+
+    // Close server stdin so the send pump finishes.
+    drop(server.stdin.take());
+
+    let output = server.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        stderr.contains("Listening"),
+        "stderr should contain 'Listening', got: {stderr}"
+    );
+    assert!(
+        stderr.contains("Connected"),
+        "stderr should contain 'Connected', got: {stderr}"
+    );
+    assert!(
+        stderr.contains(&port.to_string()),
+        "stderr should contain the port, got: {stderr}"
+    );
+}
+
+#[test]
+fn no_verbose_flag_produces_no_stderr() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let server = thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        drop(stream);
+    });
+
+    let child = Command::new(bin())
+        .args(["127.0.0.1", &port.to_string()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let output = child.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    server.join().unwrap();
+
+    assert!(
+        stderr.is_empty(),
+        "stderr should be empty without -v, got: {stderr}"
+    );
+}
