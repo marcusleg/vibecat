@@ -138,21 +138,113 @@ fn listen_addrs(config: &Config) -> io::Result<Vec<SocketAddr>> {
 
 /// Connect out to the remote described by `config` (client mode).
 pub fn connect(config: &Config) -> io::Result<(Conn, SocketAddr)> {
-    let host = config.host.as_deref().unwrap_or("127.0.0.1");
+    let host = config.host.as_deref().unwrap_or("localhost");
     let port = config.port;
     match config.proto {
-        Proto::Tcp => {
-            let stream = TcpStream::connect((host, port))?;
-            let local = stream.local_addr()?;
-            Ok((Conn::Tcp(stream), local))
+        Proto::Tcp => connect_tcp(host, port, config.addr_family),
+        Proto::Udp => connect_udp(host, port, config.addr_family),
+    }
+}
+
+fn connect_tcp(host: &str, port: u16, family: AddrFamily) -> io::Result<(Conn, SocketAddr)> {
+    let addrs: Vec<SocketAddr> = (host, port).to_socket_addrs()?.collect();
+
+    let (primary, fallback) = match family {
+        AddrFamily::Ipv4 => {
+            let v4: Vec<_> = addrs.into_iter().filter(|a| a.is_ipv4()).collect();
+            (v4, vec![])
         }
-        Proto::Udp => {
-            let socket = UdpSocket::bind("0.0.0.0:0")?;
-            socket.connect((host, port))?;
-            let local = socket.local_addr()?;
-            Ok((Conn::Udp(UdpStream::new(socket)), local))
+        AddrFamily::Ipv6 => {
+            let v6: Vec<_> = addrs.into_iter().filter(|a| a.is_ipv6()).collect();
+            (v6, vec![])
+        }
+        AddrFamily::Both => {
+            let (v6, v4): (Vec<_>, Vec<_>) = addrs.into_iter().partition(|a| a.is_ipv6());
+            (v6, v4)
+        }
+    };
+
+    if primary.is_empty() && fallback.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("no addresses resolved for {host}"),
+        ));
+    }
+
+    if fallback.is_empty() {
+        return try_connect_addrs(&primary);
+    }
+
+    if primary.is_empty() {
+        return try_connect_addrs(&fallback);
+    }
+
+    happy_eyeballs(primary, fallback)
+}
+
+fn connect_udp(host: &str, port: u16, _family: AddrFamily) -> io::Result<(Conn, SocketAddr)> {
+    let socket = UdpSocket::bind("0.0.0.0:0")?;
+    socket.connect((host, port))?;
+    let local = socket.local_addr()?;
+    Ok((Conn::Udp(UdpStream::new(socket)), local))
+}
+
+fn try_connect_addrs(addrs: &[SocketAddr]) -> io::Result<(Conn, SocketAddr)> {
+    let mut last_err = io::Error::new(io::ErrorKind::AddrNotAvailable, "no addresses to try");
+    for addr in addrs {
+        let domain = match addr {
+            SocketAddr::V4(_) => Domain::IPV4,
+            SocketAddr::V6(_) => Domain::IPV6,
+        };
+        let socket = match Socket::new(domain, Type::STREAM, None) {
+            Ok(s) => s,
+            Err(e) => {
+                last_err = e;
+                continue;
+            }
+        };
+        match socket.connect_timeout(&(*addr).into(), Duration::from_secs(5)) {
+            Ok(()) => {
+                let stream: TcpStream = socket.into();
+                let local = stream.local_addr()?;
+                return Ok((Conn::Tcp(stream), local));
+            }
+            Err(e) => last_err = e,
         }
     }
+    Err(last_err)
+}
+
+fn happy_eyeballs(
+    primary: Vec<SocketAddr>,
+    fallback: Vec<SocketAddr>,
+) -> io::Result<(Conn, SocketAddr)> {
+    let (tx, rx) = mpsc::channel();
+
+    let tx1 = tx.clone();
+    thread::spawn(move || {
+        let _ = tx1.send(try_connect_addrs(&primary));
+    });
+
+    let tx2 = tx.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(250));
+        let _ = tx2.send(try_connect_addrs(&fallback));
+    });
+
+    drop(tx);
+
+    let mut last_err = io::Error::new(
+        io::ErrorKind::ConnectionRefused,
+        "all connection attempts failed",
+    );
+    for result in rx {
+        match result {
+            Ok(conn) => return Ok(conn),
+            Err(e) => last_err = e,
+        }
+    }
+    Err(last_err)
 }
 
 /// An intermediate listener, waiting to accept a connection.
