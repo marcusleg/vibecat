@@ -25,7 +25,7 @@ The binary is produced at `target/release/vibecat`.
 
 ```
 vibecat [OPTIONS] <host> <port>      # client: connect to host:port
-vibecat -l [OPTIONS] <port>          # server: listen on port (host defaults to 0.0.0.0)
+vibecat -l [OPTIONS] <port>          # server: listen on port (host defaults to [::] and 0.0.0.0)
 ```
 
 | Flag           | Meaning                                            |
