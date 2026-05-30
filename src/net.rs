@@ -138,6 +138,17 @@ fn listen_addrs(config: &Config) -> io::Result<Vec<SocketAddr>> {
     }
 }
 
+/// Zero-I/O port scan: connect to the remote, then immediately disconnect.
+/// Returns the resolved remote address on success.
+pub fn scan_port(config: &Config) -> io::Result<SocketAddr> {
+    let host = config.host.as_deref().unwrap_or("localhost");
+    let port = config.port;
+    let (conn, _local) = connect_tcp(host, port, config.addr_family)?;
+    let peer = conn.peer_addr()?;
+    drop(conn);
+    Ok(peer)
+}
+
 /// Connect out to the remote described by `config` (client mode).
 pub fn connect(config: &Config) -> io::Result<(Conn, SocketAddr)> {
     let host = config.host.as_deref().unwrap_or("localhost");

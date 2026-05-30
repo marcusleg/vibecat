@@ -34,6 +34,10 @@ fn main() -> ExitCode {
 
 /// Establish the connection and pump data until the remote closes.
 fn run(config: &Config) -> std::io::Result<()> {
+    if config.mode == Mode::ScanPort {
+        return run_scan(config);
+    }
+
     let (conn, initial) = match config.mode {
         Mode::Connect => {
             let (conn, local_addr) = net::connect(config)?;
@@ -50,6 +54,7 @@ fn run(config: &Config) -> std::io::Result<()> {
             verbose::log_connected(config, local_addr, peer_addr);
             (conn, initial)
         }
+        Mode::ScanPort => unreachable!(),
     };
 
     if let Some(bytes) = initial {
@@ -60,6 +65,21 @@ fn run(config: &Config) -> std::io::Result<()> {
 
     let remote_addr = conn.peer_addr()?;
     pump_bidirectional(conn, config, remote_addr)
+}
+
+/// Zero-I/O port scan: connect, report, exit.
+fn run_scan(config: &Config) -> std::io::Result<()> {
+    let host = config.host.as_deref().unwrap_or("localhost");
+    match net::scan_port(config) {
+        Ok(remote_addr) => {
+            verbose::log_scan_succeeded(host, config.port, remote_addr);
+            Ok(())
+        }
+        Err(e) => {
+            verbose::log_scan_failed(host, config.port, config.addr_family, &e);
+            Err(e)
+        }
+    }
 }
 
 /// Spawn the stdin→socket and socket→stdout pumps and run until both directions

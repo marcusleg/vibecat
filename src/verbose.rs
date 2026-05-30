@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 
 use owo_colors::{OwoColorize, Stream, Style};
 
-use crate::cli::{Config, Proto};
+use crate::cli::{AddrFamily, Config, Proto};
 
 /// Bold cyan style used for addresses and ports.
 fn bold_cyan() -> Style {
@@ -88,6 +88,33 @@ pub fn log_disconnected(config: &Config, remote_addr: SocketAddr) {
         remote_addr
             .port()
             .if_supports_color(Stream::Stderr, |t| t.style(bc)),
+    );
+}
+
+/// Print a scan-succeeded message to stderr.
+pub fn log_scan_succeeded(host: &str, port: u16, remote_addr: SocketAddr) {
+    let label = proto_label(Proto::Tcp, remote_addr);
+    let bc = bold_cyan();
+    eprintln!(
+        "vibecat: Connection to {} port {} ({label}) {}!",
+        host.if_supports_color(Stream::Stderr, |t| t.style(bc)),
+        port.if_supports_color(Stream::Stderr, |t| t.style(bc)),
+        "succeeded".if_supports_color(Stream::Stderr, |t| t.green()),
+    );
+}
+
+/// Print a scan-failed message to stderr.
+pub fn log_scan_failed(host: &str, port: u16, family: AddrFamily, err: &std::io::Error) {
+    let family_hint = match family {
+        AddrFamily::Ipv6 => "IPv6/TCP",
+        _ => "IPv4/TCP",
+    };
+    let bc = bold_cyan();
+    eprintln!(
+        "vibecat: Connection to {} port {} ({family_hint}) {}: {err}",
+        host.if_supports_color(Stream::Stderr, |t| t.style(bc)),
+        port.if_supports_color(Stream::Stderr, |t| t.style(bc)),
+        "failed".if_supports_color(Stream::Stderr, |t| t.red()),
     );
 }
 
