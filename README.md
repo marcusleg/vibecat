@@ -26,6 +26,9 @@ vibecat -l [OPTIONS] <port>          # server: listen on port (host defaults to 
 |----------------|----------------------------------------------------|
 | `-l, --listen` | Listen mode (server). Without it: client mode.     |
 | `-u, --udp`    | Use UDP instead of TCP.                            |
+| `-4, --ipv4`   | Use IPv4 only.                                     |
+| `-6, --ipv6`   | Use IPv6 only.                                     |
+| `-v, --verbose` | Print diagnostic messages to stderr.              |
 | `-h, --help`   | Print help.                                        |
 | `-V, --version`| Print version.                                     |
 
@@ -73,12 +76,15 @@ echo "ping" | vibecat -u 127.0.0.1 9999   # terminal 2
   works around it; a similar flag for vibecat is out of scope for now.
 - **UDP has no end-of-stream.** A UDP receiver has no FIN to wait on, so listen
   mode runs until you interrupt it with Ctrl-C — again matching `nc -u`.
+- **Dual-stack by default.** In listen mode, vibecat binds both IPv6 and IPv4
+  sockets. In connect mode, it uses Happy Eyeballs (RFC 8305) to prefer IPv6
+  with an IPv4 fallback. Use `-4` or `-6` to restrict to one address family.
 
 ## Scope
 
 This is a minimal MVP. Out of scope (for now): source-port selection (`-p`),
 timeouts (`-w`), keep-listening for multiple clients (`-k`), command execution
-(`-e`/`-c`), port scanning, verbose/hex-dump output, and TLS.
+(`-e`/`-c`), port scanning, hex-dump output, and TLS.
 
 ## Development
 
