@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 clap = { version = "4.6.1", features = ["derive"] }
 owo-colors = { version = "4", features = ["supports-colors"] }
+socket2 = { version = "0.5", features = ["all"] }
