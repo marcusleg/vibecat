@@ -108,6 +108,11 @@ fn listen_addrs(config: &Config) -> io::Result<Vec<SocketAddr>> {
     match config.host.as_deref() {
         Some(host) => {
             let addrs: Vec<SocketAddr> = (host, port).to_socket_addrs()?.collect();
+            let addrs: Vec<SocketAddr> = match config.addr_family {
+                AddrFamily::Both => addrs,
+                AddrFamily::Ipv4 => addrs.into_iter().filter(|a| a.is_ipv4()).collect(),
+                AddrFamily::Ipv6 => addrs.into_iter().filter(|a| a.is_ipv6()).collect(),
+            };
             if addrs.is_empty() {
                 return Err(io::Error::new(
                     io::ErrorKind::AddrNotAvailable,
@@ -203,6 +208,9 @@ fn accept(listener: Listener) -> io::Result<(Conn, Option<Vec<u8>>, SocketAddr, 
 pub fn accept_first(
     mut listeners: Vec<(Listener, SocketAddr)>,
 ) -> io::Result<(Conn, Option<Vec<u8>>, SocketAddr, SocketAddr)> {
+    if listeners.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "no listeners provided"));
+    }
     if listeners.len() == 1 {
         let (listener, _) = listeners.pop().unwrap();
         return accept(listener);
@@ -219,12 +227,49 @@ pub fn accept_first(
 fn accept_first_tcp(
     listeners: Vec<(Listener, SocketAddr)>,
 ) -> io::Result<(Conn, Option<Vec<u8>>, SocketAddr, SocketAddr)> {
+    let done = Arc::new(AtomicBool::new(false));
     let (tx, rx) = mpsc::channel();
 
     for (listener, _) in listeners {
         let tx = tx.clone();
+        let done = Arc::clone(&done);
         thread::spawn(move || {
-            let _ = tx.send(accept(listener));
+            if let Listener::Tcp(l) = listener {
+                l.set_nonblocking(true).ok();
+                loop {
+                    if done.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    match l.accept() {
+                        Ok((stream, peer)) => {
+                            done.store(true, Ordering::Relaxed);
+                            stream.set_nonblocking(false).ok();
+                            let local = match stream.local_addr() {
+                                Ok(a) => a,
+                                Err(e) => {
+                                    let _ = tx.send(Err(e));
+                                    return;
+                                }
+                            };
+                            let _ = tx.send(Ok((
+                                Conn::Tcp(stream),
+                                None,
+                                local,
+                                peer,
+                            )));
+                            return;
+                        }
+                        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                            thread::sleep(Duration::from_millis(50));
+                            continue;
+                        }
+                        Err(e) => {
+                            let _ = tx.send(Err(e));
+                            return;
+                        }
+                    }
+                }
+            }
         });
     }
     drop(tx);
