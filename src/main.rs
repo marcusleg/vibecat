@@ -35,12 +35,17 @@ fn main() -> ExitCode {
 /// Establish the connection and pump data until the remote closes.
 fn run(config: &Config) -> std::io::Result<()> {
     let (conn, initial) = match config.mode {
-        Mode::Connect => (net::connect(config)?, None),
-        Mode::Listen => net::listen(config)?,
+        Mode::Connect => {
+            let (conn, _local_addr) = net::connect(config)?;
+            (conn, None)
+        }
+        Mode::Listen => {
+            let (listener, _bind_addr) = net::bind(config)?;
+            let (conn, initial, _local_addr, _peer_addr) = net::accept(listener)?;
+            (conn, initial)
+        }
     };
 
-    // For UDP listen, the first datagram was consumed during peer discovery;
-    // emit its payload before starting the receive pump.
     if let Some(bytes) = initial {
         let mut stdout = std::io::stdout();
         stdout.write_all(&bytes)?;
