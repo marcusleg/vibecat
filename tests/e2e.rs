@@ -266,3 +266,98 @@ fn no_verbose_flag_produces_no_stderr() {
         "stderr should be empty without -v, got: {stderr}"
     );
 }
+
+#[test]
+fn dual_listen_accepts_ipv4_client() {
+    let port = free_tcp_port();
+
+    let mut server = Command::new(bin())
+        .args(["-l", &port.to_string()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    thread::sleep(Duration::from_millis(200));
+
+    let mut client = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    client.write_all(b"ipv4-hello").unwrap();
+    client.shutdown(std::net::Shutdown::Write).unwrap();
+
+    drop(server.stdin.take());
+
+    let mut server_stdout = Vec::new();
+    server
+        .stdout
+        .take()
+        .unwrap()
+        .read_to_end(&mut server_stdout)
+        .unwrap();
+    server.wait().unwrap();
+
+    assert_eq!(server_stdout, b"ipv4-hello");
+}
+
+#[test]
+fn dual_listen_accepts_ipv6_client() {
+    let port = free_tcp_port();
+
+    let mut server = Command::new(bin())
+        .args(["-l", &port.to_string()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    thread::sleep(Duration::from_millis(200));
+
+    let mut client = std::net::TcpStream::connect(("::1", port)).unwrap();
+    client.write_all(b"ipv6-hello").unwrap();
+    client.shutdown(std::net::Shutdown::Write).unwrap();
+
+    drop(server.stdin.take());
+
+    let mut server_stdout = Vec::new();
+    server
+        .stdout
+        .take()
+        .unwrap()
+        .read_to_end(&mut server_stdout)
+        .unwrap();
+    server.wait().unwrap();
+
+    assert_eq!(server_stdout, b"ipv6-hello");
+}
+
+#[test]
+fn verbose_dual_listen_prints_both_listening_lines() {
+    let port = free_tcp_port();
+
+    let mut server = Command::new(bin())
+        .args(["-v", "-l", &port.to_string()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    thread::sleep(Duration::from_millis(200));
+
+    let client = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    client.shutdown(std::net::Shutdown::Both).unwrap();
+    drop(client);
+
+    drop(server.stdin.take());
+
+    let output = server.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        stderr.contains("(IPv6/TCP)"),
+        "stderr should contain '(IPv6/TCP)', got: {stderr}"
+    );
+    assert!(
+        stderr.contains("(IPv4/TCP)"),
+        "stderr should contain '(IPv4/TCP)', got: {stderr}"
+    );
+}
