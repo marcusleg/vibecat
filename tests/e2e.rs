@@ -361,3 +361,67 @@ fn verbose_dual_listen_prints_both_listening_lines() {
         "stderr should contain '(IPv4/TCP)', got: {stderr}"
     );
 }
+
+#[test]
+fn dual_listen_udp_accepts_ipv4_datagram() {
+    let probe = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let port = probe.local_addr().unwrap().port();
+    drop(probe);
+
+    let mut server = Command::new(bin())
+        .args(["-l", "-u", &port.to_string()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    thread::sleep(Duration::from_millis(200));
+
+    let client = UdpSocket::bind("0.0.0.0:0").unwrap();
+    client
+        .send_to(b"udp4-hello", ("127.0.0.1", port))
+        .unwrap();
+
+    let mut buf = [0u8; 10];
+    server
+        .stdout
+        .as_mut()
+        .unwrap()
+        .read_exact(&mut buf)
+        .unwrap();
+    assert_eq!(&buf, b"udp4-hello");
+
+    server.kill().unwrap();
+    server.wait().unwrap();
+}
+
+#[test]
+fn dual_listen_udp_accepts_ipv6_datagram() {
+    let probe = UdpSocket::bind("[::1]:0").unwrap();
+    let port = probe.local_addr().unwrap().port();
+    drop(probe);
+
+    let mut server = Command::new(bin())
+        .args(["-l", "-u", &port.to_string()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    thread::sleep(Duration::from_millis(200));
+
+    let client = UdpSocket::bind("[::]:0").unwrap();
+    client.send_to(b"udp6-hello", ("::1", port)).unwrap();
+
+    let mut buf = [0u8; 10];
+    server
+        .stdout
+        .as_mut()
+        .unwrap()
+        .read_exact(&mut buf)
+        .unwrap();
+    assert_eq!(&buf, b"udp6-hello");
+
+    server.kill().unwrap();
+    server.wait().unwrap();
+}
