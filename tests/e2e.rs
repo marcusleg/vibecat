@@ -198,7 +198,7 @@ fn verbose_connect_prints_connected_to_stderr() {
         stderr.contains(&port.to_string()),
         "stderr should contain the port, got: {stderr}"
     );
-    assert!(stderr.contains("(tcp)"), "stderr should contain '(tcp)', got: {stderr}");
+    assert!(stderr.contains("(IPv4/TCP)"), "stderr should contain '(IPv4/TCP)', got: {stderr}");
 }
 
 #[test]

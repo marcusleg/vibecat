@@ -16,10 +16,10 @@ pub fn log_listening(config: &Config, bind_addr: SocketAddr) {
     if !config.verbose {
         return;
     }
-    let proto = proto_str(config.proto);
+    let label = proto_label(config.proto, bind_addr);
     let bc = bold_cyan();
     eprintln!(
-        "vibecat: {} on {} on port {} ({proto}).",
+        "vibecat: {} on {} on port {} ({label}).",
         "Listening".if_supports_color(Stream::Stderr, |t| t.green()),
         bind_addr
             .ip()
@@ -39,14 +39,14 @@ pub fn log_connected(config: &Config, local_addr: SocketAddr, remote_addr: Socke
     if !config.verbose {
         return;
     }
-    let proto = proto_str(config.proto);
+    let label = proto_label(config.proto, remote_addr);
     let remote_ip = remote_addr.ip().to_string();
 
     let destination = format_destination(config.host.as_deref(), &remote_ip);
 
     let bc = bold_cyan();
     eprintln!(
-        "vibecat: {} to {destination} on port {} ({proto}) from {} on port {}.",
+        "vibecat: {} to {destination} on port {} ({label}) from {} on port {}.",
         "Connected".if_supports_color(Stream::Stderr, |t| t.green()),
         remote_addr
             .port()
@@ -72,18 +72,20 @@ fn format_destination(host: Option<&str>, resolved_ip: &str) -> String {
     }
 }
 
-fn proto_str(proto: Proto) -> &'static str {
-    match proto {
-        Proto::Tcp => "tcp",
-        Proto::Udp => "udp",
-    }
+fn proto_label(proto: Proto, addr: SocketAddr) -> String {
+    let family = if addr.is_ipv4() { "IPv4" } else { "IPv6" };
+    let transport = match proto {
+        Proto::Tcp => "TCP",
+        Proto::Udp => "UDP",
+    };
+    format!("{family}/{transport}")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::cli::{AddrFamily, Mode};
-    use std::net::{IpAddr, Ipv4Addr};
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
     fn cfg(verbose: bool, proto: Proto, host: Option<&str>) -> Config {
         Config {
@@ -138,5 +140,27 @@ mod tests {
     fn log_listening_is_noop_when_not_verbose() {
         let config = cfg(false, Proto::Tcp, None);
         log_listening(&config, addr([0, 0, 0, 0], 9999));
+    }
+
+    #[test]
+    fn proto_label_ipv4_tcp() {
+        assert_eq!(proto_label(Proto::Tcp, addr([127, 0, 0, 1], 80)), "IPv4/TCP");
+    }
+
+    #[test]
+    fn proto_label_ipv4_udp() {
+        assert_eq!(proto_label(Proto::Udp, addr([0, 0, 0, 0], 9999)), "IPv4/UDP");
+    }
+
+    #[test]
+    fn proto_label_ipv6_tcp() {
+        let a = SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 80);
+        assert_eq!(proto_label(Proto::Tcp, a), "IPv6/TCP");
+    }
+
+    #[test]
+    fn proto_label_ipv6_udp() {
+        let a = SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 9999);
+        assert_eq!(proto_label(Proto::Udp, a), "IPv6/UDP");
     }
 }
