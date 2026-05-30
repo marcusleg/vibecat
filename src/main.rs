@@ -70,7 +70,11 @@ fn run(config: &Config) -> std::io::Result<()> {
 /// we keep sending our stdin. The process therefore exits only once *both* pumps
 /// finish — waiting for the send pump guarantees buffered stdin data is delivered
 /// before the socket closes.
-fn pump_bidirectional(conn: Conn, config: &Config, remote_addr: std::net::SocketAddr) -> std::io::Result<()> {
+fn pump_bidirectional(
+    conn: Conn,
+    config: &Config,
+    remote_addr: std::net::SocketAddr,
+) -> std::io::Result<()> {
     let send_conn = conn.try_clone()?;
     let recv_conn = conn;
 
@@ -97,7 +101,10 @@ fn pump_bidirectional(conn: Conn, config: &Config, remote_addr: std::net::Socket
     // stdin data. If it's still blocked on stdin.read() after the grace period
     // (nobody is typing, remote already closed), let the process exit — the OS
     // tears down the blocked thread.
-    if rx.recv_timeout(std::time::Duration::from_millis(200)).is_ok() {
+    if rx
+        .recv_timeout(std::time::Duration::from_millis(200))
+        .is_ok()
+    {
         let _ = send_thread.join();
     }
     recv_result

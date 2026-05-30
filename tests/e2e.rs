@@ -198,7 +198,10 @@ fn verbose_connect_prints_connected_to_stderr() {
         stderr.contains(&port.to_string()),
         "stderr should contain the port, got: {stderr}"
     );
-    assert!(stderr.contains("(IPv4/TCP)"), "stderr should contain '(IPv4/TCP)', got: {stderr}");
+    assert!(
+        stderr.contains("(IPv4/TCP)"),
+        "stderr should contain '(IPv4/TCP)', got: {stderr}"
+    );
 }
 
 #[test]
@@ -378,9 +381,7 @@ fn dual_listen_udp_accepts_ipv4_datagram() {
     thread::sleep(Duration::from_millis(200));
 
     let client = UdpSocket::bind("0.0.0.0:0").unwrap();
-    client
-        .send_to(b"udp4-hello", ("127.0.0.1", port))
-        .unwrap();
+    client.send_to(b"udp4-hello", ("127.0.0.1", port)).unwrap();
 
     let mut buf = [0u8; 10];
     server

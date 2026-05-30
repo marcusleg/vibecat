@@ -163,12 +163,18 @@ mod tests {
 
     #[test]
     fn proto_label_ipv4_tcp() {
-        assert_eq!(proto_label(Proto::Tcp, addr([127, 0, 0, 1], 80)), "IPv4/TCP");
+        assert_eq!(
+            proto_label(Proto::Tcp, addr([127, 0, 0, 1], 80)),
+            "IPv4/TCP"
+        );
     }
 
     #[test]
     fn proto_label_ipv4_udp() {
-        assert_eq!(proto_label(Proto::Udp, addr([0, 0, 0, 0], 9999)), "IPv4/UDP");
+        assert_eq!(
+            proto_label(Proto::Udp, addr([0, 0, 0, 0], 9999)),
+            "IPv4/UDP"
+        );
     }
 
     #[test]
