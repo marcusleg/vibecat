@@ -1,6 +1,7 @@
 mod cli;
 mod io;
 mod net;
+mod verbose;
 
 use std::io::Write;
 use std::process::ExitCode;
