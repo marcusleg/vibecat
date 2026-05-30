@@ -53,7 +53,9 @@ impl UdpStream {
 
     /// Produce an independent handle to the same socket (for the read thread).
     pub fn try_clone(&self) -> io::Result<UdpStream> {
-        Ok(UdpStream { socket: self.socket.try_clone()? })
+        Ok(UdpStream {
+            socket: self.socket.try_clone()?,
+        })
     }
 
     /// Get the remote address this socket is connected to.

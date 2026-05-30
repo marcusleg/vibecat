@@ -79,7 +79,11 @@ impl Config {
     }
 
     fn from_raw(raw: RawArgs) -> Result<Config, String> {
-        let mode = if raw.listen { Mode::Listen } else { Mode::Connect };
+        let mode = if raw.listen {
+            Mode::Listen
+        } else {
+            Mode::Connect
+        };
         let proto = if raw.udp { Proto::Udp } else { Proto::Tcp };
 
         let (host, port_str) = match (mode, raw.positionals.as_slice()) {
@@ -105,7 +109,14 @@ impl Config {
             (false, false) => AddrFamily::Both,
         };
 
-        Ok(Config { mode, proto, host, port, verbose: raw.verbose, addr_family })
+        Ok(Config {
+            mode,
+            proto,
+            host,
+            port,
+            verbose: raw.verbose,
+            addr_family,
+        })
     }
 }
 

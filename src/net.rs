@@ -1,10 +1,12 @@
 //! Connection setup: connecting out or listening, over TCP or UDP.
 
 use std::io::{self, Read, Write};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::net::ToSocketAddrs;
+use std::net::{
+    IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket,
+};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::Duration;
 
@@ -323,7 +325,10 @@ pub fn accept_first(
     mut listeners: Vec<(Listener, SocketAddr)>,
 ) -> io::Result<(Conn, Option<Vec<u8>>, SocketAddr, SocketAddr)> {
     if listeners.is_empty() {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "no listeners provided"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "no listeners provided",
+        ));
     }
     if listeners.len() == 1 {
         let (listener, _) = listeners.pop().unwrap();
@@ -365,12 +370,7 @@ fn accept_first_tcp(
                                     return;
                                 }
                             };
-                            let _ = tx.send(Ok((
-                                Conn::Tcp(stream),
-                                None,
-                                local,
-                                peer,
-                            )));
+                            let _ = tx.send(Ok((Conn::Tcp(stream), None, local, peer)));
                             return;
                         }
                         Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
@@ -388,7 +388,7 @@ fn accept_first_tcp(
     }
     drop(tx);
 
-    let mut last_err = io::Error::new(io::ErrorKind::Other, "no listeners accepted a connection");
+    let mut last_err = io::Error::other("no listeners accepted a connection");
     for result in rx {
         match result {
             Ok(conn_tuple) => return Ok(conn_tuple),
@@ -409,9 +409,7 @@ fn accept_first_udp(
         let done = Arc::clone(&done);
         thread::spawn(move || {
             if let Listener::Udp(socket) = listener {
-                socket
-                    .set_read_timeout(Some(Duration::from_secs(1)))
-                    .ok();
+                socket.set_read_timeout(Some(Duration::from_secs(1))).ok();
                 let mut buf = vec![0u8; 64 * 1024];
                 loop {
                     if done.load(Ordering::Relaxed) {
@@ -457,8 +455,7 @@ fn accept_first_udp(
     }
     drop(tx);
 
-    let mut last_err =
-        io::Error::new(io::ErrorKind::Other, "no UDP listener received a datagram");
+    let mut last_err = io::Error::other("no UDP listener received a datagram");
     for result in rx {
         match result {
             Ok(conn_tuple) => return Ok(conn_tuple),
@@ -475,7 +472,14 @@ mod tests {
     use std::thread;
 
     fn cfg(mode: Mode, proto: Proto, host: Option<&str>, port: u16) -> Config {
-        Config { mode, proto, host: host.map(String::from), port, verbose: false, addr_family: AddrFamily::Both }
+        Config {
+            mode,
+            proto,
+            host: host.map(String::from),
+            port,
+            verbose: false,
+            addr_family: AddrFamily::Both,
+        }
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # vibecat
 
-A minimal [netcat](https://en.wikipedia.org/wiki/Netcat) clone written in Rust.
+A [netcat](https://en.wikipedia.org/wiki/Netcat) clone vibe-coded in Rust.
 
 `vibecat` connects to a remote host or listens for an incoming connection, then
 pipes data bidirectionally between standard I/O and the network socket. It
