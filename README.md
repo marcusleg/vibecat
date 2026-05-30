@@ -7,6 +7,12 @@ pipes data bidirectionally between standard I/O and the network socket. It
 supports both TCP and UDP, in a small, readable, dependency-light implementation
 (std lib plus `clap` for argument parsing).
 
+## Install
+
+```sh
+cargo install --git https://github.com/marcusleg/vibecat
+```
+
 ## Build
 
 ```sh
