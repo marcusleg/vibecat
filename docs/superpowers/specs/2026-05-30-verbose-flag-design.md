@@ -28,6 +28,16 @@ stdout clean for data.
 - Color configuration flags (`--color=always/auto/never`). May be added later
   but is out of scope here.
 
+## Message Style
+
+Messages are conversational but concise. Every message starts with a capital
+letter (after the `vibecat:` prefix) and ends with a period.
+
+All messages are prefixed with `vibecat:` so the source is identifiable when
+vibecat is used in a pipeline or alongside other tools producing stderr
+output. Error messages (non-verbose) already use this prefix; verbose messages
+follow the same convention for consistency.
+
 ## Message Format
 
 ### Connection Established (connect mode and listen mode after accept)
@@ -35,31 +45,31 @@ stdout clean for data.
 When a hostname was provided:
 
 ```
-vibecat: connected to example.com (93.184.216.34) on port 80 (tcp) from 192.168.1.5 on port 54321
+vibecat: Connected to example.com (93.184.216.34) on port 80 (tcp) from 192.168.1.5 on port 54321.
 ```
 
 When an IP was provided directly (no hostname to show):
 
 ```
-vibecat: connected to 93.184.216.34 on port 80 (tcp) from 192.168.1.5 on port 54321
+vibecat: Connected to 93.184.216.34 on port 80 (tcp) from 192.168.1.5 on port 54321.
 ```
 
 UDP variant:
 
 ```
-vibecat: connected to example.com (93.184.216.34) on port 53 (udp) from 192.168.1.5 on port 41022
+vibecat: Connected to example.com (93.184.216.34) on port 53 (udp) from 192.168.1.5 on port 41022.
 ```
 
 ### Listening
 
 ```
-vibecat: listening on 0.0.0.0 on port 9999 (tcp)
+vibecat: Listening on 0.0.0.0 on port 9999 (tcp).
 ```
 
 With explicit bind address:
 
 ```
-vibecat: listening on 127.0.0.1 on port 9999 (udp)
+vibecat: Listening on 127.0.0.1 on port 9999 (udp).
 ```
 
 ### Color Scheme
